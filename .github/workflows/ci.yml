@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Unit and end-to-end tests
+        run: pytest --cov=driftwatch --cov-report=term-missing --cov-fail-under=85
+
+  demo:
+    name: Demo (Driftwatch testing itself)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+      - name: Bot v1 should pass
+        run: driftwatch run examples/support_bot/suite.yaml --target python:examples.support_bot.bot_v1:reply
+      - name: Bot v2 should be caught
+        run: |
+          set +e
+          driftwatch run examples/support_bot/suite.yaml --junit v2-results.xml
+          code=$?
+          set -e
+          if [ "$code" -ne 1 ]; then
+            echo "Expected Driftwatch to fail bot v2, but it exited with $code"
+            exit 1
+          fi
+          echo "Driftwatch caught the v2 regressions, as expected."
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demo-junit
+          path: v2-results.xml
